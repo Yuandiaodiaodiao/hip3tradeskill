@@ -31,21 +31,61 @@ scripts/
 
 ## Quick Reference
 
+所有脚本默认输出人类可读的表格格式。添加 `--json` 可输出结构化 JSON，适合程序解析。
+
+### 账户设置（仅需执行一次）
+
 ```bash
-# Account setup (address only = read-only; with key = full trading)
-bun scripts/account-set.ts <address> [private-key]
+# 只设地址 → 只读模式（查持仓、订单、行情）
+bun scripts/account-set.ts <address>
 
-# Read-only queries (no private key needed)
+# 设地址 + 私钥 → 可交易（需使用 API wallet 私钥）
+bun scripts/account-set.ts <address> <private-key>
+```
+
+### 查询（无需私钥）
+
+```bash
+# 查看当前持仓（所有 DEX，含 HIP-3）
 bun scripts/account-positions.ts [--json]
-bun scripts/account-orders.ts [--json]
-bun scripts/order-history.ts [--json]
-bun scripts/markets-prices.ts [--json]
-bun scripts/asset-book.ts <coin> [--json]
 
-# Trading (requires private key)
-bun scripts/trade-order.ts <coin> <buy|sell> <size-usdc> <price> [--type limit|stop-loss|take-profit] [--trigger <price>] [--json]
+# 查看当前挂单
+bun scripts/account-orders.ts [--json]
+
+# 查看最近成交记录（最多 50 条）
+bun scripts/order-history.ts [--json]
+
+# 查看所有市场最新价格
+bun scripts/markets-prices.ts [--json]
+
+# 查看指定币种 L2 订单簿（买卖盘深度）
+bun scripts/asset-book.ts <coin> [--json]
+```
+
+### 交易（需要私钥）
+
+```bash
+# 下限价单：买入 0.001 BTC，限价 100000
+bun scripts/trade-order.ts BTC buy 0.001 100000
+
+# 下止损单：卖出 0.001 BTC，触发价 49000，执行价 48000
+bun scripts/trade-order.ts BTC sell 0.001 48000 --type stop-loss --trigger 49000
+
+# 下止盈单：卖出 0.001 BTC，触发价 54000，执行价 55000
+bun scripts/trade-order.ts BTC sell 0.001 55000 --type take-profit --trigger 54000
+
+# 可选参数：
+#   --type <limit|stop-loss|take-profit>  订单类型，默认 limit
+#   --trigger <price>                     触发价（止损/止盈必填）
+#   --reduce-only                         仅减仓
+#   --tif <Gtc|Ioc|Alo>                   有效期策略，默认 Gtc
+#   --json                                输出 JSON
+
+# 取消订单：指定币种 + 订单ID
 bun scripts/trade-cancel.ts <coin> <order-id> [--json]
 ```
+
+注意：size 参数为币本位数量（如 BTC 个数），不是 USDC 金额。
 
 ## HIP-3 Support
 
