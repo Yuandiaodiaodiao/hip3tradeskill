@@ -53,6 +53,14 @@ HIP-3 builder-deployed perps (stocks, commodities) use a different asset ID sche
 
 HIP-3 markets have isolated margin. Users may need to enable "HIP-3 Dex Abstraction" at https://app.hyperliquid.xyz (Settings → disable "Disable HIP-3 Dex Abstraction") to share margin from their main account.
 
+## RWA / TradeFi 交易对索引
+
+当交易 RWA（Real World Assets）或 TradeFi 资产（如股票、大宗商品等）时，需要先通过以下文档查询可用的交易对名称和参数：
+
+https://github.com/Yuandiaodiaodiao/hip3-tradefi-skill/blob/main/skill.md
+
+该文档包含所有 HIP-3 TradeFi 交易对的完整列表，包括币对名称、精度等信息。请在下单前先查阅此索引确认正确的交易对名称。
+
 ## Source Repository
 
 This skill's source code is hosted at:
