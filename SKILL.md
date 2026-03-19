@@ -53,6 +53,24 @@ HIP-3 builder-deployed perps (stocks, commodities) use a different asset ID sche
 
 HIP-3 markets have isolated margin. Users may need to enable "HIP-3 Dex Abstraction" at https://app.hyperliquid.xyz (Settings → disable "Disable HIP-3 Dex Abstraction") to share margin from their main account.
 
+## Source Repository
+
+This skill's source code is hosted at:
+
+```
+https://github.com/Yuandiaodiaodiao/hip3tradeskill
+```
+
+To clone and set up locally:
+
+```bash
+git clone --recurse-submodules https://github.com/Yuandiaodiaodiao/hip3tradeskill.git
+cd hip3tradeskill
+bun install
+```
+
+The repository contains a git submodule at `vendor/hyperliquid` pointing to `https://github.com/nktkas/hyperliquid.git` (the `@nktkas/hyperliquid` SDK). The `--recurse-submodules` flag is required to fetch it.
+
 ## Security
 
 - The SDK (`@nktkas/hyperliquid`) is pinned via git submodule to prevent supply chain attacks
