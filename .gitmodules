@@ -1,3 +1,0 @@
-[submodule "vendor/hyperliquid"]
-	path = vendor/hyperliquid
-	url = https://github.com/nktkas/hyperliquid.git

@@ -1,7 +1,7 @@
 {
   "private": true,
   "dependencies": {
-    "@nktkas/hyperliquid": "0.32.1",
+    "@nktkas/hyperliquid": "file:./vendor/hyperliquid-npm",
     "viem": "^2.0.0"
   },
   "trustedDependencies": []

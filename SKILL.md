@@ -112,16 +112,14 @@ https://github.com/Yuandiaodiaodiao/hip3tradeskill
 To clone and set up locally:
 
 ```bash
-git clone --recurse-submodules https://github.com/Yuandiaodiaodiao/hip3tradeskill.git
+git clone https://github.com/Yuandiaodiaodiao/hip3tradeskill.git
 cd hip3tradeskill
 bun install
 ```
 
-The repository contains a git submodule at `vendor/hyperliquid` pointing to `https://github.com/nktkas/hyperliquid.git` (the `@nktkas/hyperliquid` SDK). The `--recurse-submodules` flag is required to fetch it.
-
 ## Security
 
-- The SDK (`@nktkas/hyperliquid`) is pinned via git submodule to prevent supply chain attacks
+- The SDK (`@nktkas/hyperliquid`) is vendored locally at `vendor/hyperliquid-npm/` to prevent supply chain attacks
 - Private keys are stored locally in `~/.hyperliquidskill/config.json`
 - Without a private key, only info queries work — no trading is possible
 - Use an **API wallet** (agent wallet) rather than your main wallet for trading
