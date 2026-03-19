@@ -55,8 +55,8 @@ bun scripts/account-orders.ts [--json]
 # 查看最近成交记录（最多 50 条）
 bun scripts/order-history.ts [--json]
 
-# 查看所有市场最新价格
-bun scripts/markets-prices.ts [--json]
+# 查看指定币种最新价格
+bun scripts/markets-prices.ts <coin1> [coin2] ... [--json]
 
 # 查看指定币种 L2 订单簿（买卖盘深度）
 bun scripts/asset-book.ts <coin> [--json]
