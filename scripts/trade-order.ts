@@ -1,51 +1,64 @@
 #!/usr/bin/env bun
 /**
- * trade-order.ts — Place limit / stop-loss / take-profit orders.
+ * trade-order.ts — Place limit / market / stop-loss / take-profit orders.
  *
  * Usage:
- *   bun scripts/trade-order.ts <coin> <buy|sell> <size> <price> [options]
+ *   bun scripts/trade-order.ts <coin> <buy|sell> <notional-usdc> [price] [options]
  *
  * Options:
- *   --type <limit|stop-loss|take-profit>   Order type (default: limit)
- *   --trigger <price>                       Trigger price (required for stop-loss/take-profit)
- *   --reduce-only                           Reduce-only order
- *   --tif <Gtc|Ioc|Alo>                     Time-in-force (default: Gtc, limit orders only)
- *   --json                                  JSON output
+ *   --type <limit|market|stop-loss|take-profit>  Order type (default: limit)
+ *   --trigger <price>                            Trigger price (required for stop-loss/take-profit)
+ *   --slippage <percent>                         Market-order slippage cap, default 3
+ *   --reduce-only                                Reduce-only order
+ *   --tif <Gtc|Ioc|Alo>                          Time-in-force (default: Gtc, limit orders only)
+ *   --json                                       JSON output
  *
- * Size is in base asset units (not USDC).
- * Only limit orders are supported. Market orders are not implemented.
+ * Notional is in USDC terms. The script converts quote notional to base size internally.
  *
  * Examples:
- *   bun scripts/trade-order.ts BTC buy 0.001 100000
- *   bun scripts/trade-order.ts BTC sell 0.001 48000 --type stop-loss --trigger 49000
- *   bun scripts/trade-order.ts BTC sell 0.001 55000 --type take-profit --trigger 54000
+ *   bun scripts/trade-order.ts BTC buy 1000 100000
+ *   bun scripts/trade-order.ts BTC buy 1000 --type market
+ *   bun scripts/trade-order.ts BTC buy 1000 103000 --type market
+ *   bun scripts/trade-order.ts BTC sell 1000 48000 --type stop-loss --trigger 49000
+ *   bun scripts/trade-order.ts BTC sell 1000 55000 --type take-profit --trigger 54000
  */
 
-import { resolveAssetIndex } from "./lib/api";
-import { requirePrivateKey, requireAddress } from "./lib/config";
+import { resolveAssetIndex, getL2Book } from "./lib/api";
+import { requirePrivateKey } from "./lib/config";
 import { getExchangeClient } from "./lib/exchange";
 import { parseArgs, isJson, printJson } from "./lib/format";
+import { formatPrice, formatSize } from "@nktkas/hyperliquid/utils";
+
+type CliOrderType = "limit" | "market" | "stop-loss" | "take-profit";
+type LimitTif = "Gtc" | "Ioc" | "Alo";
+
+function printUsage(): void {
+  console.error(`Usage: bun scripts/trade-order.ts <coin> <buy|sell> <notional-usdc> [price] [--type limit|market|stop-loss|take-profit] [--trigger <price>] [--slippage <percent>] [--json]
+
+Examples:
+  bun scripts/trade-order.ts BTC buy 1000 100000
+  bun scripts/trade-order.ts BTC buy 1000 --type market
+  bun scripts/trade-order.ts BTC buy 1000 103000 --type market
+  bun scripts/trade-order.ts BTC sell 1000 48000 --type stop-loss --trigger 49000 --json
+  bun scripts/trade-order.ts BTC sell 1000 55000 --type take-profit --trigger 54000 --json`);
+}
 
 const { flags, positional } = parseArgs(process.argv.slice(2));
 
-if (positional.length < 4) {
-  console.error(`Usage: bun scripts/trade-order.ts <coin> <buy|sell> <size> <price> [--type limit|stop-loss|take-profit] [--trigger <price>] [--json]
-
-Examples:
-  bun scripts/trade-order.ts BTC buy 0.001 100000
-  bun scripts/trade-order.ts BTC sell 0.001 48000 --type stop-loss --trigger 49000 --json
-  bun scripts/trade-order.ts BTC sell 0.001 55000 --type take-profit --trigger 54000 --json`);
+if (positional.length < 3) {
+  printUsage();
   process.exit(1);
 }
 
 const coin = positional[0];
 const sideArg = positional[1].toLowerCase();
-const sizeArg = positional[2];
+const notionalArg = positional[2];
 const priceArg = positional[3];
-const orderType = (flags.type as string) || "limit";
+const orderType = ((flags.type as string) || "limit") as CliOrderType;
 const triggerPx = flags.trigger as string | undefined;
 const reduceOnly = flags["reduce-only"] === true;
-const tif = ((flags.tif as string) || "Gtc") as "Gtc" | "Ioc" | "Alo";
+const tif = ((flags.tif as string) || "Gtc") as LimitTif;
+const slippageArg = flags.slippage as string | undefined;
 
 // Validate side
 if (sideArg !== "buy" && sideArg !== "sell") {
@@ -54,38 +67,82 @@ if (sideArg !== "buy" && sideArg !== "sell") {
 }
 const isBuy = sideArg === "buy";
 
-// Validate size
-const size = parseFloat(sizeArg);
-if (isNaN(size) || size <= 0) {
-  console.error("Error: Size must be a positive number.");
-  process.exit(1);
-}
-
-// Validate price
-const price = parseFloat(priceArg);
-if (isNaN(price) || price <= 0) {
-  console.error("Error: Price must be a positive number.");
+// Validate notional
+const notional = parseFloat(notionalArg);
+if (isNaN(notional) || notional <= 0) {
+  console.error("Error: Notional must be a positive number.");
   process.exit(1);
 }
 
 // Validate order type
-if (!["limit", "stop-loss", "take-profit"].includes(orderType)) {
-  console.error('Error: --type must be "limit", "stop-loss", or "take-profit".');
+if (!["limit", "market", "stop-loss", "take-profit"].includes(orderType)) {
+  console.error('Error: --type must be "limit", "market", "stop-loss", or "take-profit".');
   process.exit(1);
 }
 
+if (!["Gtc", "Ioc", "Alo"].includes(tif)) {
+  console.error('Error: --tif must be "Gtc", "Ioc", or "Alo".');
+  process.exit(1);
+}
+
+const isTriggerOrder = orderType === "stop-loss" || orderType === "take-profit";
+const isMarketOrder = orderType === "market";
+
+if (!isMarketOrder && !priceArg) {
+  console.error(`Error: price is required for ${orderType} orders.`);
+  process.exit(1);
+}
+
+let price: number | undefined;
+if (priceArg !== undefined) {
+  price = parseFloat(priceArg);
+  if (isNaN(price) || price <= 0) {
+    console.error("Error: Price must be a positive number.");
+    process.exit(1);
+  }
+}
+
 // Validate trigger for stop-loss / take-profit
-if ((orderType === "stop-loss" || orderType === "take-profit") && !triggerPx) {
+if (isTriggerOrder && !triggerPx) {
   console.error(`Error: --trigger is required for ${orderType} orders.`);
   process.exit(1);
 }
 
+if (!isTriggerOrder && triggerPx) {
+  console.error("Error: --trigger is only valid for stop-loss and take-profit orders.");
+  process.exit(1);
+}
+
 if (triggerPx) {
-  const t = parseFloat(triggerPx);
-  if (isNaN(t) || t <= 0) {
+  const triggerPrice = parseFloat(triggerPx);
+  if (isNaN(triggerPrice) || triggerPrice <= 0) {
     console.error("Error: Trigger price must be a positive number.");
     process.exit(1);
   }
+}
+
+if (isMarketOrder && flags.tif !== undefined) {
+  console.error("Error: --tif is not used for market orders.");
+  process.exit(1);
+}
+
+if (!isMarketOrder && slippageArg !== undefined) {
+  console.error("Error: --slippage is only valid for market orders.");
+  process.exit(1);
+}
+
+let slippagePct = 3;
+if (slippageArg !== undefined) {
+  slippagePct = parseFloat(slippageArg);
+  if (isNaN(slippagePct) || slippagePct <= 0 || slippagePct >= 100) {
+    console.error("Error: --slippage must be a number between 0 and 100.");
+    process.exit(1);
+  }
+}
+
+if (isMarketOrder && price !== undefined && slippageArg !== undefined) {
+  console.error("Error: Pass either an explicit market protection price or --slippage, not both.");
+  process.exit(1);
 }
 
 // Resolve asset
@@ -94,7 +151,9 @@ const asset = await resolveAssetIndex(coin);
 
 // Build order type wire format
 let orderTypeWire: Record<string, unknown>;
-if (orderType === "limit") {
+if (isMarketOrder) {
+  orderTypeWire = { limit: { tif: "FrontendMarket" } };
+} else if (orderType === "limit") {
   orderTypeWire = { limit: { tif } };
 } else if (orderType === "stop-loss") {
   orderTypeWire = {
@@ -115,20 +174,43 @@ if (orderType === "limit") {
   };
 }
 
-// Round size to asset's szDecimals
-const roundedSize = parseFloat(size.toFixed(asset.szDecimals));
-
 // Place order via SDK
 const client = await getExchangeClient(privateKey);
 
 try {
+  let referencePx: string | undefined;
+  let formattedPrice: string;
+  let sizeReferencePx: number;
+  if (isMarketOrder && price === undefined) {
+    const book = await getL2Book(coin);
+    const bookSide = isBuy ? book.levels[1] : book.levels[0];
+    const topLevel = bookSide[0];
+
+    if (!topLevel) {
+      throw new Error(`No ${isBuy ? "ask" : "bid"} liquidity available for ${coin}.`);
+    }
+
+    const topPx = parseFloat(topLevel.px);
+    const protectedPx = isBuy ? topPx * (1 + slippagePct / 100) : topPx * (1 - slippagePct / 100);
+
+    sizeReferencePx = topPx;
+    referencePx = formatPrice(topPx, asset.szDecimals, asset.marketType);
+    formattedPrice = formatPrice(protectedPx, asset.szDecimals, asset.marketType);
+  } else {
+    sizeReferencePx = price!;
+    formattedPrice = formatPrice(price!, asset.szDecimals, asset.marketType);
+  }
+
+  const baseSize = notional / sizeReferencePx;
+  const formattedSize = formatSize(baseSize, asset.szDecimals);
+
   const result = await client.order({
     orders: [
       {
         a: asset.index,
         b: isBuy,
-        p: price.toString(),
-        s: roundedSize.toString(),
+        p: formattedPrice,
+        s: formattedSize,
         r: reduceOnly,
         t: orderTypeWire as any,
       },
@@ -154,7 +236,22 @@ try {
       }
     }
 
-    console.log(`\n${orderType.toUpperCase()} ${isBuy ? "BUY" : "SELL"} ${roundedSize} ${coin} @ ${price}${triggerPx ? ` (trigger: ${triggerPx})` : ""}`);
+    const orderLabel = isMarketOrder ? "MARKET" : orderType.toUpperCase();
+    const summaryParts = [`\n${orderLabel} ${isBuy ? "BUY" : "SELL"} ${notional} USDC of ${coin} (${formattedSize} ${coin})`];
+
+    if (isMarketOrder) {
+      summaryParts.push(`${isBuy ? "<=" : ">="} ${formattedPrice}`);
+      if (referencePx) {
+        summaryParts.push(`(sized from top of book: ${referencePx}, slippage cap: ${slippagePct}%)`);
+      }
+    } else {
+      summaryParts.push(`@ ${formattedPrice}`);
+      if (triggerPx) {
+        summaryParts.push(`(trigger: ${triggerPx})`);
+      }
+    }
+
+    console.log(summaryParts.join(" "));
   }
 } catch (err) {
   if (isJson(flags)) {

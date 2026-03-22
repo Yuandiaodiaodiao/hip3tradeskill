@@ -2,7 +2,7 @@
 name: hyperliquidskill
 description: >
   Trade crypto perpetuals, HIP-3 stocks (AAPL, NVDA, TSLA), and commodities (GOLD, SILVER) on Hyperliquid DEX.
-  Supports account setup, position tracking, order management, limit/stop-loss/take-profit orders, and real-time market data.
+  Supports account setup, position tracking, order management, market/limit/stop-loss/take-profit orders, and real-time market data.
   Use this skill whenever the user mentions Hyperliquid trading, perp positions, HIP-3 assets, order placement, or DEX market data.
 ---
 
@@ -25,7 +25,7 @@ scripts/
 ├── order-history.ts    # View closed/filled orders
 ├── markets-prices.ts   # All market mid-prices
 ├── asset-book.ts       # L2 order book for a specific asset
-├── trade-order.ts      # Place limit / stop-loss / take-profit orders
+├── trade-order.ts      # Place market / limit / stop-loss / take-profit orders
 └── trade-cancel.ts     # Cancel an order by coin + order-id
 ```
 
@@ -65,18 +65,26 @@ bun scripts/asset-book.ts <coin> [--json]
 ### 交易（需要私钥）
 
 ```bash
-# 下限价单：买入 0.001 BTC，限价 100000
-bun scripts/trade-order.ts BTC buy 0.001 100000
+# 下限价单：买入 1000 USDC 名义金额的 BTC，限价 100000
+bun scripts/trade-order.ts BTC buy 1000 100000
 
-# 下止损单：卖出 0.001 BTC，触发价 49000，执行价 48000
-bun scripts/trade-order.ts BTC sell 0.001 48000 --type stop-loss --trigger 49000
+# 下市价单：买入 1000 USDC 名义金额的 BTC（自动按盘口 + 3% 滑点保护价提交）
+bun scripts/trade-order.ts BTC buy 1000 --type market
 
-# 下止盈单：卖出 0.001 BTC，触发价 54000，执行价 55000
-bun scripts/trade-order.ts BTC sell 0.001 55000 --type take-profit --trigger 54000
+# 下市价单：买入 1000 USDC 名义金额的 BTC，显式指定最差成交保护价 103000
+bun scripts/trade-order.ts BTC buy 1000 103000 --type market
+
+# 下止损单：卖出 1000 USDC 名义金额的 BTC，触发价 49000，执行价 48000
+bun scripts/trade-order.ts BTC sell 1000 48000 --type stop-loss --trigger 49000
+
+# 下止盈单：卖出 1000 USDC 名义金额的 BTC，触发价 54000，执行价 55000
+bun scripts/trade-order.ts BTC sell 1000 55000 --type take-profit --trigger 54000
 
 # 可选参数：
-#   --type <limit|stop-loss|take-profit>  订单类型，默认 limit
+#   --type <limit|market|stop-loss|take-profit>
+#                                        订单类型，默认 limit
 #   --trigger <price>                     触发价（止损/止盈必填）
+#   --slippage <percent>                  市价单滑点保护，默认 3
 #   --reduce-only                         仅减仓
 #   --tif <Gtc|Ioc|Alo>                   有效期策略，默认 Gtc
 #   --json                                输出 JSON
@@ -85,7 +93,15 @@ bun scripts/trade-order.ts BTC sell 0.001 55000 --type take-profit --trigger 540
 bun scripts/trade-cancel.ts <coin> <order-id> [--json]
 ```
 
-注意：size 参数为币本位数量（如 BTC 个数），不是 USDC 金额。
+注意：`trade-order.ts` 的第三个参数默认是 USDC 名义金额，不是币本位数量。用户说的 `1000u`、`1000 usdc`、`1000 usdt` 都按 `1000 USDC` 规模理解。
+注意：脚本会按下单价格把 USDC 名义金额换算成币本位数量；因此实际成交的 USDC 金额会随最终成交价有轻微偏差。
+注意：市价单底层会以 Hyperliquid `FrontendMarket` 方式提交；若未显式传 price，会读取当前买一/卖一并按 `--slippage` 生成保护价。
+注意：若未设置 `HL_TESTNET=1`，交易脚本默认连接 Hyperliquid 主网。
+
+当用户自然语言下单时，默认按 U 本位理解规模，例如：
+
+- `开 1000u 的 BTC 多单` → `bun scripts/trade-order.ts BTC buy 1000 --type market`
+- `挂 5000u 的 ETH 空单，限价 4200` → `bun scripts/trade-order.ts ETH sell 5000 4200`
 
 ## HIP-3 Support
 

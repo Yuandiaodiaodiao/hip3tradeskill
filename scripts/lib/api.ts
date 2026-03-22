@@ -163,7 +163,9 @@ export async function getL2Book(coin: string): Promise<L2Book> {
  * Resolve a coin name to its asset index, searching across all perp dexes and spot.
  * Supports HIP-3 builder-deployed perps (asset ID = 100000 + dex_index * 10000 + index).
  */
-export async function resolveAssetIndex(coin: string): Promise<{ index: number; szDecimals: number; dexName?: string }> {
+export async function resolveAssetIndex(
+  coin: string,
+): Promise<{ index: number; szDecimals: number; marketType: "perp" | "spot"; dexName?: string }> {
   const allPerps = await getAllPerpMetas();
 
   for (let dexIndex = 0; dexIndex < allPerps.length; dexIndex++) {
@@ -172,12 +174,13 @@ export async function resolveAssetIndex(coin: string): Promise<{ index: number; 
     if (marketIndex !== -1) {
       const meta = dex.universe[marketIndex];
       if (dexIndex === 0) {
-        return { index: marketIndex, szDecimals: meta.szDecimals };
+        return { index: marketIndex, szDecimals: meta.szDecimals, marketType: "perp" };
       }
       // HIP-3 builder perp
       return {
         index: 100000 + dexIndex * 10000 + marketIndex,
         szDecimals: meta.szDecimals,
+        marketType: "perp",
         dexName: extractDexPrefix(meta.name) || undefined,
       };
     }
@@ -192,6 +195,7 @@ export async function resolveAssetIndex(coin: string): Promise<{ index: number; 
     return {
       index: 10000 + spotIndex,
       szDecimals: token?.szDecimals ?? 2,
+      marketType: "spot",
     };
   }
 
