@@ -3,24 +3,28 @@
  * trade-order.ts — Place limit / market / stop-loss / take-profit orders.
  *
  * Usage:
- *   bun scripts/trade-order.ts <coin> <buy|sell> <notional-usdc> [price] [options]
+ *   bun scripts/trade-order.ts <coin> <buy|sell> <size-input> [price] [options]
  *
  * Options:
  *   --type <limit|market|stop-loss|take-profit>  Order type (default: limit)
  *   --trigger <price>                            Trigger price (required for stop-loss/take-profit)
  *   --slippage <percent>                         Market-order slippage cap, default 3
+ *   --raw-size                                   Treat <size-input> as base-asset size (reduce-only only)
  *   --reduce-only                                Reduce-only order
  *   --tif <Gtc|Ioc|Alo>                          Time-in-force (default: Gtc, limit orders only)
  *   --json                                       JSON output
  *
- * Notional is in USDC terms. The script converts quote notional to base size internally.
+ * By default, <size-input> is in USDC terms and is converted to base size internally.
+ * With --raw-size, <size-input> is interpreted as raw base-asset size, but only for reduce-only orders.
  *
  * Examples:
  *   bun scripts/trade-order.ts BTC buy 1000 100000
  *   bun scripts/trade-order.ts BTC buy 1000 --type market
  *   bun scripts/trade-order.ts BTC buy 1000 103000 --type market
- *   bun scripts/trade-order.ts BTC sell 1000 48000 --type stop-loss --trigger 49000
- *   bun scripts/trade-order.ts BTC sell 1000 55000 --type take-profit --trigger 54000
+ *   bun scripts/trade-order.ts BTC sell 0.00145 68600 --type limit --reduce-only --raw-size
+ *   bun scripts/trade-order.ts BTC sell 0.00145 --type market --reduce-only --raw-size
+ *   bun scripts/trade-order.ts BTC sell 0.00145 48000 --type stop-loss --trigger 49000 --reduce-only --raw-size
+ *   bun scripts/trade-order.ts BTC sell 0.00145 55000 --type take-profit --trigger 54000 --reduce-only --raw-size
  */
 
 import { resolveAssetIndex, getL2Book } from "./lib/api";
@@ -33,14 +37,16 @@ type CliOrderType = "limit" | "market" | "stop-loss" | "take-profit";
 type LimitTif = "Gtc" | "Ioc" | "Alo";
 
 function printUsage(): void {
-  console.error(`Usage: bun scripts/trade-order.ts <coin> <buy|sell> <notional-usdc> [price] [--type limit|market|stop-loss|take-profit] [--trigger <price>] [--slippage <percent>] [--json]
+  console.error(`Usage: bun scripts/trade-order.ts <coin> <buy|sell> <size-input> [price] [--type limit|market|stop-loss|take-profit] [--trigger <price>] [--slippage <percent>] [--raw-size] [--reduce-only] [--json]
 
 Examples:
   bun scripts/trade-order.ts BTC buy 1000 100000
   bun scripts/trade-order.ts BTC buy 1000 --type market
   bun scripts/trade-order.ts BTC buy 1000 103000 --type market
-  bun scripts/trade-order.ts BTC sell 1000 48000 --type stop-loss --trigger 49000 --json
-  bun scripts/trade-order.ts BTC sell 1000 55000 --type take-profit --trigger 54000 --json`);
+  bun scripts/trade-order.ts BTC sell 0.00145 68600 --type limit --reduce-only --raw-size
+  bun scripts/trade-order.ts BTC sell 0.00145 --type market --reduce-only --raw-size
+  bun scripts/trade-order.ts BTC sell 0.00145 48000 --type stop-loss --trigger 49000 --reduce-only --raw-size --json
+  bun scripts/trade-order.ts BTC sell 0.00145 55000 --type take-profit --trigger 54000 --reduce-only --raw-size --json`);
 }
 
 const { flags, positional } = parseArgs(process.argv.slice(2));
@@ -52,11 +58,12 @@ if (positional.length < 3) {
 
 const coin = positional[0];
 const sideArg = positional[1].toLowerCase();
-const notionalArg = positional[2];
+const sizeInputArg = positional[2];
 const priceArg = positional[3];
 const orderType = ((flags.type as string) || "limit") as CliOrderType;
 const triggerPx = flags.trigger as string | undefined;
 const reduceOnly = flags["reduce-only"] === true;
+const rawSizeMode = flags["raw-size"] === true;
 const tif = ((flags.tif as string) || "Gtc") as LimitTif;
 const slippageArg = flags.slippage as string | undefined;
 
@@ -67,10 +74,9 @@ if (sideArg !== "buy" && sideArg !== "sell") {
 }
 const isBuy = sideArg === "buy";
 
-// Validate notional
-const notional = parseFloat(notionalArg);
-if (isNaN(notional) || notional <= 0) {
-  console.error("Error: Notional must be a positive number.");
+const sizeInput = parseFloat(sizeInputArg);
+if (isNaN(sizeInput) || sizeInput <= 0) {
+  console.error(`Error: ${rawSizeMode ? "Raw size" : "Notional"} must be a positive number.`);
   process.exit(1);
 }
 
@@ -82,6 +88,11 @@ if (!["limit", "market", "stop-loss", "take-profit"].includes(orderType)) {
 
 if (!["Gtc", "Ioc", "Alo"].includes(tif)) {
   console.error('Error: --tif must be "Gtc", "Ioc", or "Alo".');
+  process.exit(1);
+}
+
+if (rawSizeMode && !reduceOnly) {
+  console.error("Error: --raw-size is only allowed for reduce-only orders.");
   process.exit(1);
 }
 
@@ -201,7 +212,7 @@ try {
     formattedPrice = formatPrice(price!, asset.szDecimals, asset.marketType);
   }
 
-  const baseSize = notional / sizeReferencePx;
+  const baseSize = rawSizeMode ? sizeInput : sizeInput / sizeReferencePx;
   const formattedSize = formatSize(baseSize, asset.szDecimals);
 
   const result = await client.order({
@@ -237,7 +248,10 @@ try {
     }
 
     const orderLabel = isMarketOrder ? "MARKET" : orderType.toUpperCase();
-    const summaryParts = [`\n${orderLabel} ${isBuy ? "BUY" : "SELL"} ${notional} USDC of ${coin} (${formattedSize} ${coin})`];
+    const sizeLabel = rawSizeMode
+      ? `${formattedSize} ${coin} (raw size)`
+      : `${sizeInput} USDC of ${coin} (${formattedSize} ${coin})`;
+    const summaryParts = [`\n${orderLabel} ${isBuy ? "BUY" : "SELL"} ${sizeLabel}`];
 
     if (isMarketOrder) {
       summaryParts.push(`${isBuy ? "<=" : ">="} ${formattedPrice}`);

@@ -18,6 +18,7 @@ const allDexStates = await getAllPositions(address);
 const positions: Array<{
   coin: string;
   side: string;
+  rawSize: string;
   entryPx: string;
   markValue: string;
   unrealizedPnl: string;
@@ -32,6 +33,7 @@ for (const { dex, state } of allDexStates) {
     positions.push({
       coin: p.coin,
       side: formatSide(p.szi),
+      rawSize: p.szi,
       entryPx: formatNum(p.entryPx, 4),
       markValue: formatNum(p.positionValue, 2),
       unrealizedPnl: formatPnl(p.unrealizedPnl),
@@ -68,8 +70,8 @@ if (isJson(flags)) {
     console.log("No open positions.");
   } else {
     printTable(
-      ["Coin", "Side", "Entry", "Value", "PnL", "ROE", "Margin"],
-      positions.map((p) => [p.coin, p.side, p.entryPx, p.markValue, p.unrealizedPnl, p.roe, p.marginUsed])
+      ["Coin", "Side", "Raw Size", "Entry", "Value", "PnL", "ROE", "Margin"],
+      positions.map((p) => [p.coin, p.side, p.rawSize, p.entryPx, p.markValue, p.unrealizedPnl, p.roe, p.marginUsed])
     );
   }
 }

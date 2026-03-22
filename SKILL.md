@@ -74,17 +74,24 @@ bun scripts/trade-order.ts BTC buy 1000 --type market
 # 下市价单：买入 1000 USDC 名义金额的 BTC，显式指定最差成交保护价 103000
 bun scripts/trade-order.ts BTC buy 1000 103000 --type market
 
-# 下止损单：卖出 1000 USDC 名义金额的 BTC，触发价 49000，执行价 48000
-bun scripts/trade-order.ts BTC sell 1000 48000 --type stop-loss --trigger 49000
+# 限价平仓：按 rawSize 平掉 0.00145 BTC 多单
+bun scripts/trade-order.ts BTC sell 0.00145 68600 --type limit --reduce-only --raw-size
 
-# 下止盈单：卖出 1000 USDC 名义金额的 BTC，触发价 54000，执行价 55000
-bun scripts/trade-order.ts BTC sell 1000 55000 --type take-profit --trigger 54000
+# 市价平仓：按 rawSize 平掉 0.00145 BTC 多单
+bun scripts/trade-order.ts BTC sell 0.00145 --type market --reduce-only --raw-size
+
+# 止损单：按 rawSize 为现有仓位挂止损，触发价 49000，执行价 48000
+bun scripts/trade-order.ts BTC sell 0.00145 48000 --type stop-loss --trigger 49000 --reduce-only --raw-size
+
+# 止盈单：按 rawSize 为现有仓位挂止盈，触发价 54000，执行价 55000
+bun scripts/trade-order.ts BTC sell 0.00145 55000 --type take-profit --trigger 54000 --reduce-only --raw-size
 
 # 可选参数：
 #   --type <limit|market|stop-loss|take-profit>
 #                                        订单类型，默认 limit
 #   --trigger <price>                     触发价（止损/止盈必填）
 #   --slippage <percent>                  市价单滑点保护，默认 3
+#   --raw-size                            把第三个参数解释为币本位 raw size（仅 reduce-only）
 #   --reduce-only                         仅减仓
 #   --tif <Gtc|Ioc|Alo>                   有效期策略，默认 Gtc
 #   --json                                输出 JSON
@@ -94,14 +101,19 @@ bun scripts/trade-cancel.ts <coin> <order-id> [--json]
 ```
 
 注意：`trade-order.ts` 的第三个参数默认是 USDC 名义金额，不是币本位数量。用户说的 `1000u`、`1000 usdc`、`1000 usdt` 都按 `1000 USDC` 规模理解。
+注意：只有 `--reduce-only` 订单才允许加 `--raw-size`，这时第三个参数按原始持仓数量解释，例如 `0.00145 BTC` 或 `70 xyz:CL`。
+注意：非 `reduce-only` 订单必须使用 U 本位输入，不能使用 `--raw-size`。
 注意：脚本会按下单价格把 USDC 名义金额换算成币本位数量；因此实际成交的 USDC 金额会随最终成交价有轻微偏差。
 注意：市价单底层会以 Hyperliquid `FrontendMarket` 方式提交；若未显式传 price，会读取当前买一/卖一并按 `--slippage` 生成保护价。
 注意：若未设置 `HL_TESTNET=1`，交易脚本默认连接 Hyperliquid 主网。
+注意：查询原始持仓数量请用 `bun scripts/account-positions.ts --json` 或查看表格里的 `Raw Size` 列。
 
 当用户自然语言下单时，默认按 U 本位理解规模，例如：
 
 - `开 1000u 的 BTC 多单` → `bun scripts/trade-order.ts BTC buy 1000 --type market`
 - `挂 5000u 的 ETH 空单，限价 4200` → `bun scripts/trade-order.ts ETH sell 5000 4200`
+- `把 BTC 多单按当前持仓全平` → 先查 `rawSize`，再用 `bun scripts/trade-order.ts BTC sell <rawSize> --type market --reduce-only --raw-size`
+- `给 BTC 多单挂止损，数量按当前持仓` → 先查 `rawSize`，再用 `bun scripts/trade-order.ts BTC sell <rawSize> 48000 --type stop-loss --trigger 49000 --reduce-only --raw-size`
 
 ## HIP-3 Support
 
