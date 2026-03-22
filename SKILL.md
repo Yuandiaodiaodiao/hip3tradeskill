@@ -103,6 +103,7 @@ bun scripts/trade-cancel.ts <coin> <order-id> [--json]
 注意：`trade-order.ts` 的第三个参数默认是 USDC 名义金额，不是币本位数量。用户说的 `1000u`、`1000 usdc`、`1000 usdt` 都按 `1000 USDC` 规模理解。
 注意：只有 `--reduce-only` 订单才允许加 `--raw-size`，这时第三个参数按原始持仓数量解释，例如 `0.00145 BTC` 或 `70 xyz:CL`。
 注意：非 `reduce-only` 订单必须使用 U 本位输入，不能使用 `--raw-size`。
+注意：任何平仓动作之前，必须先查询一次当前仓位的 `rawSize`，再据此构造 `--reduce-only --raw-size` 订单；不要假设用户口头描述的数量就是当前持仓数量。
 注意：脚本会按下单价格把 USDC 名义金额换算成币本位数量；因此实际成交的 USDC 金额会随最终成交价有轻微偏差。
 注意：市价单底层会以 Hyperliquid `FrontendMarket` 方式提交；若未显式传 price，会读取当前买一/卖一并按 `--slippage` 生成保护价。
 注意：若未设置 `HL_TESTNET=1`，交易脚本默认连接 Hyperliquid 主网。
@@ -114,6 +115,12 @@ bun scripts/trade-cancel.ts <coin> <order-id> [--json]
 - `挂 5000u 的 ETH 空单，限价 4200` → `bun scripts/trade-order.ts ETH sell 5000 4200`
 - `把 BTC 多单按当前持仓全平` → 先查 `rawSize`，再用 `bun scripts/trade-order.ts BTC sell <rawSize> --type market --reduce-only --raw-size`
 - `给 BTC 多单挂止损，数量按当前持仓` → 先查 `rawSize`，再用 `bun scripts/trade-order.ts BTC sell <rawSize> 48000 --type stop-loss --trigger 49000 --reduce-only --raw-size`
+
+平仓工作流要求：
+
+1. 先运行 `bun scripts/account-positions.ts --json`，读取目标仓位的最新 `rawSize`
+2. 再根据该 `rawSize` 构造 `trade-order.ts ... --reduce-only --raw-size`
+3. 不要跳过第 1 步，也不要复用旧的 `rawSize`
 
 ## HIP-3 Support
 
